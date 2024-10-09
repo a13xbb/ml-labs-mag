@@ -10,37 +10,59 @@ class ResNetBlock(nn.Module):
     def __init__(
         self,
         input_dim: int,
-        norm,
-        activation,
-        dropout,
+        normalization: str,
+        activation: str,
+        dropout_type: str,
         hidden_factor: int = 2,
         dropout_1: float = 0.1,
         dropout_2: float = 0.05,
     ):
         super().__init__()
+        
+        d_hidden = int(hidden_factor * input_dim)
 
-        hidden_dim = int(hidden_factor * input_dim)
+        if normalization == "batch_norm":
+            self.norm1 = nn.BatchNorm1d(d_hidden)
+            self.norm2 = nn.BatchNorm1d(input_dim)
+        elif normalization == "layer_norm":
+            self.norm1 = nn.LayerNorm(d_hidden)
+            self.norm2 = nn.LayerNorm(input_dim)
+        else:
+            raise ValueError("Normalization is incorrect. Possible options: 'batch_norm', 'layer_norm'.")
 
-        self.linear1 = nn.Linear(input_dim, hidden_dim)
-        self.linear2 = nn.Linear(hidden_dim, input_dim)
+        if activation == "relu":
+            self.activation = nn.ReLU()
+        elif activation == "gelu":
+            self.activation = nn.GELU()
+        else:
+            raise ValueError("Activation is incorrect. Possible options: 'relu', 'gelu'.")
+
+        if dropout_type == "dropout":
+            self.dropout = nn.Dropout
+        elif dropout_type == "dropout1d":
+            self.dropout = nn.Dropout1d
+        else:
+            raise ValueError("Dropout type is incorrect. Possible options: 'dropout', 'dropout1d'.")
+
+        self.linear1 = nn.Linear(input_dim, d_hidden)
+        self.linear2 = nn.Linear(d_hidden, input_dim)
 
         self.ff = nn.Sequential(
             self.linear1,
-            norm(hidden_dim),
-            activation,
-            dropout(dropout_1),
+            self.norm1,
+            self.activation,
+            self.dropout(dropout_1),
             self.linear2,
-            norm(input_dim),
-            activation,
-            dropout(dropout_2),
+            self.norm2,
+            self.activation,
+            self.dropout(dropout_2),
         )
 
     def forward(self, x: torch.Tensor, use_skip_connection: bool = True) -> torch.Tensor:
         out = self.ff(x)
         if use_skip_connection:
             out = x + out
-        return out
-
+        return out 
 
 class ResNet(pl.LightningModule):
     def __init__(self, input_dim: int, params: dict = {}):
@@ -61,32 +83,11 @@ class ResNet(pl.LightningModule):
         dropout_1 = params.get("dropout_1", 0.1)
         dropout_2 = params.get("dropout_2", 0.05)
 
-        if normalization == "batch_norm":
-            self.norm = nn.BatchNorm1d
-        elif normalization == "layer_norm":
-            self.norm = nn.LayerNorm
-        else:
-            raise ValueError("Normalization is incorrect. Possible options: 'batch_norm', 'layer_norm'.")
-
-        if activation == "relu":
-            self.activation = nn.ReLU()
-        elif activation == "gelu":
-            self.activation = nn.GELU()
-        else:
-            raise ValueError("Activation is incorrect. Possible options: 'relu', 'gelu'.")
-
-        if dropout_type == "dropout":
-            self.dropout = nn.Dropout
-        elif dropout_type == "dropout1d":
-            self.dropout = nn.Dropout1d
-        else:
-            raise ValueError("Dropout type is incorrect. Possible options: 'dropout', 'dropout1d'.")
-
         resnet_block_params = [
             layer_size,
-            self.norm,
-            self.activation,
-            self.dropout,
+            normalization,
+            activation,
+            dropout_type,
             hidden_factor,
             dropout_1,
             dropout_2,
@@ -98,8 +99,8 @@ class ResNet(pl.LightningModule):
             self.blocks.append(ResNetBlock(*resnet_block_params))
 
         self.prediction = nn.Sequential(
-            self.norm(layer_size),
-            self.activation,
+            nn.LayerNorm(layer_size),
+            nn.ReLU(),
             nn.Linear(layer_size, 1),
             nn.Sigmoid(),
         )
@@ -123,7 +124,7 @@ class ResNet(pl.LightningModule):
         self.log("val_loss", loss, on_epoch=True)
 
         self.f1.update(output, y)
-        self.log("val_f1", self.f1, on_epoch=True)
+        self.log("val_f1", self.f1, on_step=False, on_epoch=True)
         return loss
 
     def configure_optimizers(self):
