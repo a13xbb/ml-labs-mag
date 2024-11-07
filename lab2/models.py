@@ -27,6 +27,35 @@ class MLP(nn.Module):
         return self.model(x)
     
     
+class Conv1DNet(nn.Module):
+    def __init__(self, input_dim, hidden_dim, output_dim):
+        super(Conv1DNet, self).__init__()
+        
+        self.model = nn.Sequential(
+            nn.Conv1d(in_channels=1, out_channels=hidden_dim, kernel_size=3, padding=1),
+            nn.BatchNorm1d(hidden_dim),
+            nn.Dropout(0.2),
+            nn.ReLU(),
+            
+            nn.Conv1d(in_channels=hidden_dim, out_channels=64, kernel_size=3, padding=1),
+            nn.BatchNorm1d(hidden_dim),
+            nn.Dropout(0.2),
+            nn.ReLU(),
+            
+            nn.Conv1d(in_channels=64, out_channels=32, kernel_size=3, padding=1),
+            nn.Dropout(0.2),
+            nn.ReLU(),
+            
+            nn.AdaptiveAvgPool1d(1),
+            
+            nn.Flatten(),
+            nn.Linear(32, output_dim)
+        )
+
+    def forward(self, x):
+        return self.model(x)
+    
+    
 class LSTM(nn.Module):
     def __init__(self, hidden_dim: int, vocab_size: int, num_classes: int = 2, num_layers: int = 2) -> None:
         super().__init__()
